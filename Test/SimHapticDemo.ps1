@@ -15,7 +15,7 @@ $script:state = @{
     aircraftTitle = "F/A-18C Hornet"
     acType = "military"
     engineType = "Jet"
-    surfaceType = "Concrete"
+    surfaceType = "Hard"
     batteryState = $false
     hasRetractableGear = $true
     hasFloats = $false
@@ -196,7 +196,7 @@ function Reset-State {
     $script:state.isStalling = $false
     $script:state.isCannonFireOn = $false
     $script:state.canopyJettison = $false
-    $script:state.surfaceType = "Concrete"
+    $script:state.surfaceType = "Hard"
     $script:phase = "idle"
     $script:phaseTime = 0.0
     $script:totalTime = 0.0
@@ -303,7 +303,7 @@ function Update-Phase {
             $script:state.engine1Speed = 60
             $script:state.engine2Speed = 60
             $script:state.bodyAccelerationY = (Get-Random -Minimum -5 -Maximum 5) / 100.0
-            $script:state.surfaceType = "Concrete"
+            $script:state.surfaceType = "Hard"
             $script:activeEffects = @("Ground Roll", "Ground Bumps", "Engine Vibration")
         }
         "cat_tension" {
@@ -718,7 +718,7 @@ function Update-Phase {
             $script:state.engine1Speed = 70
             $script:state.engine2Speed = 70
             $script:state.gforce = 1.0
-            $script:state.surfaceType = "Concrete"
+            $script:state.surfaceType = "Hard"
             $script:activeEffects = @("Engine Vibration", "Airframe Airflow")
         }
         "gear_down" {
@@ -770,7 +770,7 @@ function Update-Phase {
             $script:state.gearFrontOnGround = $true
             $script:state.gearLeftOnGround = $true
             $script:state.gearRightOnGround = $true
-            $script:state.surfaceType = "Concrete"
+            $script:state.surfaceType = "Hard"
             $script:state.gforce = 1.8
             $script:state.bodyAccelerationY = (Get-Random -Minimum -30 -Maximum 30) / 100.0
             $script:activeEffects = @("TOUCHDOWN!", "Ground Impact")
