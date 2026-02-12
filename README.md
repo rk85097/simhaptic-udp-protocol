@@ -296,38 +296,13 @@ Engine type. Affects engine vibration sound selection and behavior.
 
 Current ground surface type. Affects ground roll character, bump frequency, and grass effects.
 
-| Value                    | Category | Description |
-|--------------------------|----------|-------------|
-| `"Concrete"`             | Hard     | Concrete runway |
-| `"Asphalt"`              | Hard     | Asphalt runway |
-| `"Tarmac"`               | Hard     | Tarmac surface |
-| `"Bituminus"`            | Hard     | Bituminous surface |
-| `"Brick"`                | Hard     | Brick surface |
-| `"Hard_turf"`            | Hard     | Hard turf/packed dirt runway |
-| `"Macadam"`              | Other    | Macadam surface |
-| `"Steel_mats"`           | Other    | Steel mat runway (military) |
-| `"Planks"`               | Other    | Plank surface |
-| `"Gravel"`               | Other    | Gravel surface |
-| `"Oil_treated"`          | Other    | Oil-treated surface |
-| `"Coral"`                | Other    | Coral surface |
-| `"Grass"`                | Soft     | Standard grass |
-| `"Short_grass"`          | Soft     | Short grass |
-| `"Long_grass"`           | Soft     | Long/tall grass |
-| `"Grass_bumpy"`          | Soft     | Bumpy grass |
-| `"Dirt"`                 | Soft     | Dirt surface |
-| `"Sand"`                 | Soft     | Sand surface |
-| `"Shale"`                | Soft     | Shale surface |
-| `"Snow"`                 | Soft     | Snow-covered surface |
-| `"Ice"`                  | Soft     | Ice surface |
-| `"Urban"`                | Other    | Urban area |
-| `"Forest"`               | Other    | Forest area |
-| `"Water"`                | Water    | Water surface |
-| `"Wright_flyer_track"`   | Other    | Wright flyer launch track |
+| Value      | Description |
+|------------|-------------|
+| `"Hard"`   | Hard/paved surface (concrete, asphalt, tarmac, etc.). Enables `ground_roll` and `ground_bumps` effects. |
+| `"Soft"`   | Soft/unpaved surface (grass, dirt, sand, snow, etc.). Enables `grass_roll` effect. |
+| `"Water"`  | Water surface. Disables touchdown effect. |
 
-**How surface type affects effects:**
-- **Hard surfaces** (`Concrete`, `Asphalt`, `Tarmac`, `Bituminus`, `Brick`, `Hard_turf`): Enable `ground_roll` and `ground_bumps` effects. Disable `grass_roll`.
-- **Soft surfaces** (`Grass`, `Dirt`, `Sand`, etc.): Enable `grass_roll` effect. Disable `ground_roll` and `ground_bumps`.
-- **Water**: Disables touchdown effect.
+Default: `"Hard"`
 
 ---
 
@@ -866,7 +841,7 @@ Here is a template with every possible field and its default value. Copy this as
   "aircraftTitle": "",
   "acType": "piston",
   "engineType": "Piston",
-  "surfaceType": "Concrete",
+  "surfaceType": "Hard",
 
   "batteryState": false,
   "hasRetractableGear": false,
