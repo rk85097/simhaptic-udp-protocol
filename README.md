@@ -128,7 +128,6 @@ Send the same `aircraftTitle` consistently for the same aircraft. Only change it
 | `canopyJettison`    | bool | `false` | `true` when the canopy has been jettisoned (military). |
 | `isCannonFireOn`    | bool | `false` | `true` when guns/cannons are actively firing. |
 | `isAutoFlapsOn`     | bool | `false` | `true` when auto-flaps mode is engaged. |
-| `isStalling`        | bool | `false` | `true` when the aircraft is in an aerodynamic stall. |
 | `isInCockpit`       | bool | `true`  | `true` when the camera is in cockpit view. Effects are muted when `false`. **Default is `true`** - only set to `false` if you want to mute effects in external views. |
 
 See also: [Section 4.8](#48-engine--propulsion-per-engine) for per-engine booleans (`engine1Running`, `engine1StarterOn`, etc.) and [Section 4.5](#45-landing-gear-per-gear) for per-gear ground contact booleans (`gearFrontOnGround`, etc.).
@@ -392,12 +391,9 @@ These are the effects most users expect. Prioritize implementing these fields fi
 
 | Required Field    | Why It's Needed |
 |-------------------|-----------------|
-| `stallPercentage` | Primary trigger. 0 = no stall, 1 = full stall. Gradual onset. |
+| `stallPercentage` | Primary driver. 0.0 = no stall, 1.0 = full stall. **This value is used directly as the effect intensity** — a value of 0.5 means 50% stall buffet intensity. For the best experience, ramp this value gradually as the aircraft approaches stall (e.g. start at 0.1-0.2 near stall onset, increase toward 1.0 in a deep stall) rather than sending a hard 0/1 switch. |
 | `gearFrontOnGround`, `gearLeftOnGround`, `gearRightOnGround` | Disabled on ground |
 | `agl`             | Minimum altitude threshold (10 ft) for activation |
-| `ias`             | Used in some stall behavior calculations |
-
-*Alternative:* If you can't provide `stallPercentage`, you can send `isStalling` as a boolean. However, `stallPercentage` gives a much better gradual buffet onset.
 
 #### Flaps Movement
 > Vibration/thump when flaps extend or retract.
@@ -881,7 +877,6 @@ Here is a template with every possible field and its default value. Copy this as
   "canopyJettison": false,
   "isCannonFireOn": false,
   "isAutoFlapsOn": false,
-  "isStalling": false,
   "isInCockpit": true,
 
   "agl": 0.0,
