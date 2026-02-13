@@ -29,9 +29,9 @@ Instead of SimHaptic connecting to your simulator directly, **your simulator sen
 
 ```
 ┌─────────────────────┐         UDP (JSON)         ┌─────────────────────┐
-│                     │  ───────────────────────►   │                     │
-│  Your Simulator     │    localhost:19872          │    SimHaptic        │
-│                     │    20-60 packets/sec        │                     │
+│                     │  ───────────────────────►  │                     │
+│  Your Simulator     │    localhost:19872         │    SimHaptic        │
+│                     │    20-60 packets/sec       │                     │
 │  (sends telemetry)  │                            │  (drives haptics)   │
 └─────────────────────┘                            └─────────────────────┘
 ```
