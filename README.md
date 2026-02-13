@@ -63,7 +63,7 @@ Instead of SimHaptic connecting to your simulator directly, **your simulator sen
 1. **SimHaptic opens a UDP socket** and listens on the configured port when "External UDP" is selected.
 2. **Your simulator sends packets** to that port. No handshake is needed.
 3. **SimHaptic considers itself "connected"** as soon as it receives the first valid packet.
-4. **SimHaptic considers itself "paused/disconnected"** if no packets arrive for more than **1 second**.
+4. **SimHaptic considers itself "paused/disconnected"** if no packets arrive for more than **1 second**, or if the `isPaused` field is set to `true` in the packet.
 5. **To reconnect**, simply start sending packets again. SimHaptic auto-reconnects.
 
 ### Important
@@ -128,6 +128,7 @@ Send the same `aircraftTitle` consistently for the same aircraft. Only change it
 | `canopyJettison`    | bool | `false` | `true` when the canopy has been jettisoned (military). |
 | `isCannonFireOn`    | bool | `false` | `true` when guns/cannons are actively firing. |
 | `isAutoFlapsOn`     | bool | `false` | `true` when auto-flaps mode is engaged. |
+| `isPaused`          | bool | `false` | `true` when the simulation is paused. When `true`, SimHaptic treats the sim as paused and stops all effects. When `false` (or omitted), SimHaptic runs effects normally. This allows explicit pause signaling without stopping packet transmission. |
 | `isInCockpit`       | bool | `true`  | `true` when the camera is in cockpit view. Effects are muted when `false`. **Default is `true`** - only set to `false` if you want to mute effects in external views. |
 
 See also: [Section 4.8](#48-engine--propulsion-per-engine) for per-engine booleans (`engine1Running`, `engine1StarterOn`, etc.) and [Section 4.5](#45-landing-gear-per-gear) for per-gear ground contact booleans (`gearFrontOnGround`, etc.).
@@ -777,10 +778,16 @@ These are the effects most users expect. Prioritize implementing these fields fi
 - SimHaptic retains the last received value for each field. If you stop sending a field, it keeps its last value (it does NOT reset to default).
 - If you want to explicitly reset a field (e.g., stop firing guns), send the field with its zero/false value.
 
+### Pause State
+
+- **Explicit pause**: Set `isPaused` to `true` in your packets to pause SimHaptic while keeping the connection alive. SimHaptic will show "Paused" and stop all effects. Set it back to `false` (or omit it) to resume.
+- **Implicit pause (timeout)**: If no packets arrive for more than **1 second**, SimHaptic automatically enters the paused state.
+- **Recommendation**: Use `isPaused` for clean pause/unpause transitions. This avoids the 1-second timeout delay and gives your users instant pause feedback.
+
 ### Graceful Disconnection
 
 - SimHaptic considers the connection lost after **1 second** of no packets.
-- When your simulator exits or pauses, simply stop sending packets. SimHaptic will show "Waiting..." after 1 second.
+- When your simulator exits, simply stop sending packets. SimHaptic will show "Waiting..." after 1 second.
 - When you resume, start sending packets again. Reconnection is automatic.
 
 ---
@@ -852,6 +859,7 @@ Here is a template with every possible field and its default value. Copy this as
   "canopyJettison": false,
   "isCannonFireOn": false,
   "isAutoFlapsOn": false,
+  "isPaused": false,
   "isInCockpit": true,
 
   "agl": 0.0,
