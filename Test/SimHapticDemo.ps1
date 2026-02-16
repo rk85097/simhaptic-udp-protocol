@@ -1,14 +1,19 @@
 # SimHaptic Full Demo - Automated Flight Sequence
 # Demonstrates ALL haptic effects in a realistic 2-3 minute flight cycle
-
 $Host.UI.RawUI.WindowTitle = "SimHaptic Full Demo"
-
 $targetIP = "127.0.0.1"
 $targetPort = 19872
 $updateRate = 30
-
 $udpClient = New-Object System.Net.Sockets.UdpClient
 $endpoint = New-Object System.Net.IPEndPoint ([System.Net.IPAddress]::Parse($targetIP), $targetPort)
+
+# Ping/Pong state
+$script:pongData = $null            # Last pong response object
+$script:lastPingTime = $null         # When we last sent a ping
+$script:lastPongTime = $null         # When we last received a pong
+$script:pongRoundTripMs = 0          # Last round-trip time in ms
+$script:connectionStatus = "Unknown" # "Connected", "No Response", "Unknown"
+$pingIntervalSec = 5                 # How often to send health-check pings
 
 $script:state = @{
     sh = 1
@@ -83,7 +88,6 @@ $script:state = @{
     flareCount = 60
     damage = 0.0
 }
-
 $script:phase = "idle"
 $script:phaseTime = 0.0
 $script:totalTime = 0.0
@@ -91,7 +95,6 @@ $script:running = $false
 $script:packetsSent = 0
 $script:activeEffects = @()
 $script:phaseDescription = "Press SPACE to start demo"
-
 # Phase definitions - fixed timing
 $script:phases = @(
     @{ name = "cold_dark"; duration = 4; desc = "Cold & Dark - Carrier Deck" }
@@ -150,7 +153,6 @@ $script:phases = @(
     @{ name = "complete"; duration = 4; desc = "Demo Complete - Press SPACE to restart" }
 )
 $script:currentPhaseIndex = -1
-
 function Reset-State {
     $script:state.batteryState = $false
     $script:state.engine1Running = $false
@@ -205,7 +207,6 @@ function Reset-State {
     $script:activeEffects = @()
     $script:phaseDescription = "Press SPACE to start demo"
 }
-
 function Start-Demo {
     Reset-State
     $script:running = $true
@@ -215,14 +216,12 @@ function Start-Demo {
     $script:phase = $script:phases[0].name
     $script:phaseDescription = $script:phases[0].desc
 }
-
 function Lerp($from, $to, $t) {
     [double]$f = $from
     [double]$tt = $to
     [double]$clamped = [Math]::Min([Math]::Max($t, 0), 1)
     return $f + (($tt - $f) * $clamped)
 }
-
 # Ease in-out function for smooth G transitions
 function EaseInOut($t) {
     [double]$clamped = [Math]::Min([Math]::Max([double]$t, 0.0), 1.0)
@@ -233,6 +232,138 @@ function EaseInOut($t) {
         return [double](1.0 - (($x * $x) / 2.0))
     }
 }
+
+# ─── Ping/Pong Functions ─────────────────────────────────────────────────
+
+function Send-Ping {
+    # Sends a ping packet. Returns the JSON string that was sent.
+    $pingJson = '{"sh":1,"type":"ping"}'
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($pingJson)
+        $null = $udpClient.Send($bytes, $bytes.Length, $endpoint)
+        $script:lastPingTime = Get-Date
+    } catch { }
+    return $pingJson
+}
+
+function Try-ReceivePong {
+    # Non-blocking check for a pong response. Returns parsed object or $null.
+    try {
+        if ($udpClient.Available -gt 0) {
+            $remoteEP = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any, 0)
+            $receiveBytes = $udpClient.Receive([ref]$remoteEP)
+            $responseStr = [System.Text.Encoding]::UTF8.GetString($receiveBytes)
+            $response = $responseStr | ConvertFrom-Json
+            if ($response.type -eq "pong") {
+                $now = Get-Date
+                $script:pongData = $response
+                $script:lastPongTime = $now
+                if ($script:lastPingTime) {
+                    $script:pongRoundTripMs = [int]($now - $script:lastPingTime).TotalMilliseconds
+                }
+                $script:connectionStatus = "Connected"
+                return @{ parsed = $response; raw = $responseStr }
+            }
+        }
+    } catch { }
+    return $null
+}
+
+function Wait-ForPong {
+    param([int]$TimeoutMs = 2000)
+    # Blocking wait for a pong response with timeout.
+    $start = Get-Date
+    while (((Get-Date) - $start).TotalMilliseconds -lt $TimeoutMs) {
+        $result = Try-ReceivePong
+        if ($result) { return $result }
+        Start-Sleep -Milliseconds 20
+    }
+    return $null
+}
+
+function Show-PingPongDemo {
+    Clear-Host
+    Write-Host ""
+    Write-Host "  ======================================================================" -ForegroundColor Cyan
+    Write-Host "        SIMHAPTIC FULL DEMO - PING/PONG CONNECTION CHECK" -ForegroundColor Yellow
+    Write-Host "  ======================================================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  Target: " -NoNewline
+    Write-Host "${targetIP}:${targetPort}" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  The ping/pong mechanism lets you verify SimHaptic is running" -ForegroundColor Gray
+    Write-Host "  before sending telemetry. Telemetry is one-way (fire-and-forget)," -ForegroundColor Gray
+    Write-Host "  but ping gets a pong reply with status info." -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  ----------------------------------------------------------------------" -ForegroundColor DarkCyan
+    Write-Host ""
+
+    # --- Attempt 1 ---
+    Write-Host "  Sending ping..." -ForegroundColor Yellow
+    $sentJson = Send-Ping
+    Write-Host "  >>> " -NoNewline -ForegroundColor DarkGray
+    Write-Host "$sentJson" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "  Waiting for pong (up to 2 seconds)..." -ForegroundColor Yellow
+
+    $result = Wait-ForPong -TimeoutMs 2000
+
+    if ($result) {
+        Write-Host ""
+        Write-Host "  PONG RECEIVED!" -ForegroundColor Green -NoNewline
+        Write-Host "  (round-trip: $($script:pongRoundTripMs) ms)" -ForegroundColor Gray
+        Write-Host "  <<< " -NoNewline -ForegroundColor DarkGray
+        Write-Host "$($result.raw)" -ForegroundColor Cyan
+        Write-Host ""
+
+        $p = $result.parsed
+        $aircraft = if ($p.connectedAircraft -and $p.connectedAircraft -ne "") { $p.connectedAircraft } else { "(none)" }
+
+        Write-Host "  +-------------------------------------------+" -ForegroundColor DarkCyan
+        Write-Host "  |  SimHaptic Version:    " -NoNewline -ForegroundColor DarkCyan
+        Write-Host ("{0,-20}" -f $p.version) -NoNewline -ForegroundColor White
+        Write-Host "|" -ForegroundColor DarkCyan
+        Write-Host "  |  Protocol Version:     " -NoNewline -ForegroundColor DarkCyan
+        Write-Host ("{0,-20}" -f $p.sh) -NoNewline -ForegroundColor White
+        Write-Host "|" -ForegroundColor DarkCyan
+        Write-Host "  |  Packets Received:     " -NoNewline -ForegroundColor DarkCyan
+        Write-Host ("{0,-20}" -f $p.packetsReceived) -NoNewline -ForegroundColor White
+        Write-Host "|" -ForegroundColor DarkCyan
+        Write-Host "  |  Parse Errors:         " -NoNewline -ForegroundColor DarkCyan
+        $errColor = if ($p.parseErrors -gt 0) { "Yellow" } else { "White" }
+        Write-Host ("{0,-20}" -f $p.parseErrors) -NoNewline -ForegroundColor $errColor
+        Write-Host "|" -ForegroundColor DarkCyan
+        Write-Host "  |  Connected Aircraft:   " -NoNewline -ForegroundColor DarkCyan
+        Write-Host ("{0,-20}" -f $aircraft) -NoNewline -ForegroundColor White
+        Write-Host "|" -ForegroundColor DarkCyan
+        Write-Host "  +-------------------------------------------+" -ForegroundColor DarkCyan
+        Write-Host ""
+        Write-Host "  SimHaptic is running and ready to receive telemetry!" -ForegroundColor Green
+    } else {
+        $script:connectionStatus = "No Response"
+        Write-Host ""
+        Write-Host "  NO PONG RECEIVED" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "  SimHaptic may not be running, or:" -ForegroundColor Yellow
+        Write-Host "    - 'External UDP' is not selected in the simulator dropdown" -ForegroundColor Gray
+        Write-Host "    - Wrong IP/port (current: ${targetIP}:${targetPort})" -ForegroundColor Gray
+        Write-Host "    - Firewall is blocking UDP traffic on port ${targetPort}" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "  The demo will still send telemetry packets regardless." -ForegroundColor Yellow
+    }
+
+    Write-Host ""
+    Write-Host "  ----------------------------------------------------------------------" -ForegroundColor DarkCyan
+    Write-Host ""
+    Write-Host "  Press any key to continue to the flight demo..." -ForegroundColor White
+    Write-Host ""
+
+    # Flush any buffered keys
+    while ([Console]::KeyAvailable) { $null = [Console]::ReadKey($true) }
+    $null = [Console]::ReadKey($true)
+}
+
+# ─── End Ping/Pong Functions ─────────────────────────────────────────────
 
 function Update-Phase {
     param($dt)
@@ -853,7 +984,6 @@ function Update-Phase {
         }
     }
 }
-
 function Build-JsonPacket {
     $s = $script:state
     $b = { param($v) if ($v) { "true" } else { "false" } }
@@ -923,7 +1053,6 @@ function Build-JsonPacket {
     '}'
     return $json
 }
-
 function Send-Packet {
     try {
         $json = Build-JsonPacket
@@ -932,19 +1061,16 @@ function Send-Packet {
         $script:packetsSent++
     } catch { }
 }
-
 function Format-Time($seconds) {
     $mins = [int][Math]::Floor($seconds / 60)
     $secs = [int][Math]::Floor($seconds % 60)
     return "{0}:{1:D2}" -f $mins, $secs
 }
-
 function Get-TotalDuration {
     $total = 0
     foreach ($p in $script:phases) { $total += $p.duration }
     return $total
 }
-
 function Update-Display {
     Clear-Host
     $s = $script:state
@@ -956,6 +1082,32 @@ function Update-Display {
     Write-Host "  ======================================================================" -ForegroundColor Cyan
     Write-Host ""
     
+    # ─── Connection status line ───
+    $connColor = switch ($script:connectionStatus) {
+        "Connected"   { "Green" }
+        "No Response" { "Red" }
+        default       { "DarkGray" }
+    }
+    Write-Host "  SimHaptic: " -NoNewline
+    Write-Host "$($script:connectionStatus)" -ForegroundColor $connColor -NoNewline
+    if ($script:pongData) {
+        Write-Host "  v$($script:pongData.version)" -ForegroundColor Gray -NoNewline
+        Write-Host "  Rx:$($script:pongData.packetsReceived)" -ForegroundColor Gray -NoNewline
+        if ($script:pongData.parseErrors -gt 0) {
+            Write-Host "  Err:$($script:pongData.parseErrors)" -ForegroundColor Yellow -NoNewline
+        }
+        Write-Host "  RTT:${script:pongRoundTripMs}ms" -ForegroundColor Gray -NoNewline
+        $pongAge = if ($script:lastPongTime) { [int]((Get-Date) - $script:lastPongTime).TotalSeconds } else { -1 }
+        if ($pongAge -ge 0) {
+            $ageColor = if ($pongAge -gt 10) { "Yellow" } else { "Gray" }
+            Write-Host "  (${pongAge}s ago)" -ForegroundColor $ageColor
+        } else {
+            Write-Host ""
+        }
+    } else {
+        Write-Host "" 
+    }
+
     $statusColor = if ($script:running) { "Green" } else { "Yellow" }
     $statusText = if ($script:running) { "RUNNING" } else { "STOPPED" }
     Write-Host "  Status: " -NoNewline
@@ -1055,15 +1207,16 @@ function Update-Display {
     Write-Host "  ======================================================================" -ForegroundColor White
 }
 
-# Main Loop
+# ─── Startup: Ping/Pong Demo ─────────────────────────────────────────────
+Reset-State
+Show-PingPongDemo
+
+# ─── Main Loop ────────────────────────────────────────────────────────────
 $appRunning = $true
 $lastUpdate = Get-Date
 $displayCounter = 0
 $dt = 1.0 / $updateRate
-
-Reset-State
 Update-Display
-
 while ($appRunning) {
     $now = Get-Date
     $elapsed = ($now - $lastUpdate).TotalMilliseconds
@@ -1076,6 +1229,24 @@ while ($appRunning) {
         }
         
         Send-Packet
+
+        # ─── Periodic ping health check ───
+        $secsSinceLastPing = if ($script:lastPingTime) { ($now - $script:lastPingTime).TotalSeconds } else { $pingIntervalSec + 1 }
+        if ($secsSinceLastPing -ge $pingIntervalSec) {
+            $null = Send-Ping
+        }
+
+        # ─── Check for pong (non-blocking) ───
+        $pongResult = Try-ReceivePong
+        if (-not $pongResult) {
+            # If no pong for a while, mark status
+            if ($script:lastPongTime) {
+                $secsSinceLastPong = ($now - $script:lastPongTime).TotalSeconds
+                if ($secsSinceLastPong -gt ($pingIntervalSec * 2 + 2)) {
+                    $script:connectionStatus = "No Response"
+                }
+            }
+        }
         
         $displayCounter++
         if ($displayCounter -ge ($updateRate / 3)) {
@@ -1101,7 +1272,6 @@ while ($appRunning) {
     
     Start-Sleep -Milliseconds 5
 }
-
 $udpClient.Close()
 Write-Host ""
 Write-Host "Demo stopped. Sent $script:packetsSent packets." -ForegroundColor Yellow
