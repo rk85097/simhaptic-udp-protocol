@@ -1,8 +1,8 @@
 # SimHaptic External UDP Telemetry Protocol
 
 **Protocol Version:** 1
-**SimHaptic Version:** 2.2.1+
-**Last Updated:** 2026-02-11
+**SimHaptic Version:** 2.2.2+
+**Last Updated:** 2026-02-16
 
 ---
 
@@ -15,7 +15,8 @@
 5. [Enum Reference](#5-enum-reference)
 6. [Effect Data Requirements](#6-effect-data-requirements)
 7. [Best Practices](#7-best-practices)
-8. [Troubleshooting](#8-troubleshooting)
+8. [Connection Verification (Ping/Pong)](#8-connection-verification-pingpong)
+9. [Troubleshooting](#9-troubleshooting)
 
 ---
 
@@ -28,18 +29,23 @@ Instead of SimHaptic connecting to your simulator directly, **your simulator sen
 ### How It Works
 
 ```
-┌─────────────────────┐         UDP (JSON)         ┌─────────────────────┐
+┌─────────────────────┐     Telemetry (JSON)       ┌─────────────────────┐
 │                     │  ───────────────────────►  │                     │
 │  Your Simulator     │  <SimHaptic-IP>:19872      │    SimHaptic        │
 │                     │    20-60 packets/sec       │                     │
 │  (sends telemetry)  │                            │  (drives haptics)   │
+│                     │     Ping (JSON)            │                     │
+│                     │  ───────────────────────►  │                     │
+│                     │     Pong (JSON)            │                     │
+│                     │   ◄─────────────────────── │                     │
 └─────────────────────┘                            └─────────────────────┘
 ```
 
 ### Key Points
 
 - **Protocol**: JSON over UDP
-- **Direction**: Your simulator sends **to** SimHaptic (one-way)
+- **Telemetry**: Your simulator sends telemetry **to** SimHaptic (one-way, no response).
+- **Ping/Pong**: Your simulator can send a **ping** packet to verify SimHaptic is reachable. SimHaptic replies with a **pong** (see [Section 8](#8-connection-verification-pingpong)). Telemetry packets do **not** trigger a pong.
 - **Target**: `127.0.0.1` (localhost) or the LAN IP of the SimHaptic PC, port `19872` (configurable)
 - **Rate**: Send packets at your simulation frame rate, ideally **20-60 Hz**
 - **Partial data is fine**: Only send the fields you have. Missing fields default to zero/false. Effects that depend on missing data simply won't activate.
@@ -792,7 +798,125 @@ These are the effects most users expect. Prioritize implementing these fields fi
 
 ---
 
-## 8. Troubleshooting
+## 8. Connection Verification (Ping/Pong)
+
+Since UDP provides no delivery confirmation, your simulator has no way to know whether SimHaptic is actually running and receiving packets. The ping/pong mechanism solves this.
+
+### How It Works
+
+Send a **ping** packet to SimHaptic. If SimHaptic is running and listening, it immediately responds with a **pong** packet back to your sender address and port.
+
+No pong received? SimHaptic is not running, the port is wrong, or a firewall is blocking traffic.
+
+### Ping Packet Format
+
+Send a JSON packet with `type` set to `"ping"`:
+
+```json
+{"sh": 1, "type": "ping"}
+```
+
+That's it. No other fields are needed. The `sh` field is required (same as telemetry packets).
+
+Ping packets are **not** treated as telemetry. They do not affect connection state, effect processing, or aircraft detection in SimHaptic.
+
+### Pong Response Format
+
+SimHaptic responds with:
+
+```json
+{
+  "sh": 1,
+  "type": "pong",
+  "version": "2.2.2",
+  "packetsReceived": 87432,
+  "parseErrors": 3,
+  "connectedAircraft": "F-16C"
+}
+```
+
+| Field               | Type   | Description |
+|---------------------|--------|-------------|
+| `sh`                | int    | Protocol version (always `1`). |
+| `type`              | string | Always `"pong"`. |
+| `version`           | string | SimHaptic application version. |
+| `packetsReceived`   | int    | Total telemetry packets successfully processed since SimHaptic started listening. |
+| `parseErrors`       | int    | Total malformed packets received (JSON parse failures). |
+| `connectedAircraft` | string | Currently connected aircraft title (empty string if none). |
+
+The pong is sent back to the **exact address and port** that the ping came from (as reported by the OS from the received UDP datagram).
+
+### Sequence Diagram
+
+```
+    Simulator                          SimHaptic
+       │                                  │
+       │   {"sh":1,"type":"ping"}         │
+       │ ─────────────────────────────►   │
+       │                                  │
+       │   {"sh":1,"type":"pong",...}     │
+       │ ◄─────────────────────────────   │
+       │                                  │
+       │   (ping confirmed, start        │
+       │    sending telemetry)            │
+       │                                  │
+       │   {"sh":1,"aircraftTitle":...}   │
+       │ ─────────────────────────────►   │
+       │   {"sh":1,"aircraftTitle":...}   │
+       │ ─────────────────────────────►   │
+       │   {"sh":1,"aircraftTitle":...}   │
+       │ ─────────────────────────────►   │
+       │           ...                    │
+       │                                  │
+       │   (periodic health check)        │
+       │                                  │
+       │   {"sh":1,"type":"ping"}         │
+       │ ─────────────────────────────►   │
+       │                                  │
+       │   {"sh":1,"type":"pong",...}     │
+       │ ◄─────────────────────────────   │
+       │                                  │
+       │   (SimHaptic still alive, good)  │
+       │                                  │
+```
+
+### Recommended Sender Pattern
+
+> **Note:** This is a suggested approach. You are free to implement your own strategy based on your simulator's needs.
+
+Use ping/pong to avoid sending telemetry into the void at full rate when SimHaptic is unreachable:
+
+```
+┌──────────────┐     ping, no pong     ┌──────────────┐
+│              │ ───────────────────►   │              │
+│  PROBING     │     (every ~10s)      │   CONNECTED  │
+│              │ ◄───────────────────   │              │
+│  Send ping   │     pong received     │  Send telem  │
+│  every ~10s  │ ───────────────────►  │  at full rate │
+│              │                        │              │
+└──────┬───────┘                        └──────┬───────┘
+       │                                       │
+       │  pong received                        │  no pong for ~5s
+       │                                       │
+       ▼                                       ▼
+┌──────────────┐                        ┌──────────────┐
+│  CONNECTED   │                        │  PROBING     │
+└──────────────┘                        └──────────────┘
+```
+
+**PROBING** (SimHaptic not yet confirmed):
+- Send a ping every ~10 seconds
+- Do **not** send telemetry at full rate
+- On pong received: transition to CONNECTED
+
+**CONNECTED** (SimHaptic confirmed alive):
+- Send telemetry at full rate (20-60 Hz)
+- Periodically send a ping (e.g., every ~5 seconds) as a health check
+- If no pong comes back for ~5 seconds: transition back to PROBING
+
+---
+
+## 9. Troubleshooting
 
 ### SimHaptic shows "Waiting..." (red dot)
 
@@ -828,6 +952,14 @@ These are the effects most users expect. Prioritize implementing these fields fi
 - `surfaceType` must not be `"Water"`.
 - The aircraft must have been in the air for a meaningful duration before landing.
 
+### Not receiving pong responses
+
+- Ensure SimHaptic is running with "External UDP" selected.
+- Check that your ping packet includes `"sh": 1` — it is required.
+- Verify you are sending to the correct IP and port.
+- Make sure your UDP socket is bound to a port so SimHaptic can send the pong back. If you use an ephemeral (OS-assigned) port, that's fine — SimHaptic replies to whatever source address/port the OS reports.
+- Check firewall settings — the pong travels in the reverse direction, which some firewalls may block if they don't track UDP "connections."
+
 ### JSON parse errors in SimHaptic log
 
 - Ensure your JSON is properly formatted. Common issues:
@@ -838,7 +970,13 @@ These are the effects most users expect. Prioritize implementing these fields fi
 
 ---
 
-## Appendix A: Complete Packet Template
+## Appendix A: Ping Packet Template
+
+```json
+{"sh": 1, "type": "ping"}
+```
+
+## Appendix B: Complete Telemetry Packet Template
 
 Here is a template with every possible field and its default value. Copy this as a starting point and remove fields you don't need:
 
@@ -942,7 +1080,7 @@ Here is a template with every possible field and its default value. Copy this as
 
 ---
 
-## Appendix B: Effect Availability Summary
+## Appendix C: Effect Availability Summary
 
 Quick reference showing which effects activate based on aircraft type:
 
@@ -997,7 +1135,7 @@ Quick reference showing which effects activate based on aircraft type:
 
 ---
 
-## Appendix C: Units Quick Reference
+## Appendix D: Units Quick Reference
 
 | Quantity | Unit | Example |
 |----------|------|---------|
