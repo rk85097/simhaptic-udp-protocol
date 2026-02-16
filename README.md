@@ -30,7 +30,7 @@ Instead of SimHaptic connecting to your simulator directly, **your simulator sen
 ```
 ┌─────────────────────┐         UDP (JSON)         ┌─────────────────────┐
 │                     │  ───────────────────────►  │                     │
-│  Your Simulator     │    localhost:19872         │    SimHaptic        │
+│  Your Simulator     │  <SimHaptic-IP>:19872      │    SimHaptic        │
 │                     │    20-60 packets/sec       │                     │
 │  (sends telemetry)  │                            │  (drives haptics)   │
 └─────────────────────┘                            └─────────────────────┘
@@ -40,7 +40,7 @@ Instead of SimHaptic connecting to your simulator directly, **your simulator sen
 
 - **Protocol**: JSON over UDP
 - **Direction**: Your simulator sends **to** SimHaptic (one-way)
-- **Target**: `127.0.0.1` (localhost), port `19872` (configurable)
+- **Target**: `127.0.0.1` (localhost) or the LAN IP of the SimHaptic PC, port `19872` (configurable)
 - **Rate**: Send packets at your simulation frame rate, ideally **20-60 Hz**
 - **Partial data is fine**: Only send the fields you have. Missing fields default to zero/false. Effects that depend on missing data simply won't activate.
 
@@ -53,14 +53,14 @@ Instead of SimHaptic connecting to your simulator directly, **your simulator sen
 | Setting           | Value                                      |
 |-------------------|--------------------------------------------|
 | Protocol          | UDP (SOCK_DGRAM)                           |
-| IP Address        | `127.0.0.1` (localhost)                    |
+| IP Address        | `127.0.0.1` (localhost) or LAN IP of the SimHaptic PC |
 | Port              | `19872` (configurable in SimHaptic settings)|
 | Max Packet Size   | 4096 bytes                                 |
 | Encoding          | UTF-8                                      |
 
 ### Connection Lifecycle
 
-1. **SimHaptic opens a UDP socket** and listens on the configured port when "External UDP" is selected.
+1. **SimHaptic opens a UDP socket** and listens on all network interfaces (`0.0.0.0`) on the configured port when "External UDP" is selected. This means it accepts packets from localhost as well as from other machines on your LAN.
 2. **Your simulator sends packets** to that port. No handshake is needed.
 3. **SimHaptic considers itself "connected"** as soon as it receives the first valid packet.
 4. **SimHaptic considers itself "paused/disconnected"** if no packets arrive for more than **1 second**, or if the `isPaused` field is set to `true` in the packet.
@@ -798,9 +798,9 @@ These are the effects most users expect. Prioritize implementing these fields fi
 
 - Verify "External UDP" is selected in the simulator dropdown.
 - Check that your simulator is sending to the correct port (default `19872`).
-- Ensure you're sending to `127.0.0.1` (localhost), not `0.0.0.0` or a LAN address.
+- If running on the same machine, send to `127.0.0.1` (localhost). If running on a different machine on your LAN, send to the LAN IP of the PC running SimHaptic.
 - Verify your JSON is valid. A malformed JSON packet is silently discarded.
-- Check firewall settings - ensure UDP traffic to localhost is not blocked.
+- Check firewall settings - ensure inbound UDP traffic on the configured port is allowed. This is especially important for LAN setups where Windows Firewall may block traffic from other machines by default.
 
 ### Connected but no effects
 
