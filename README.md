@@ -857,7 +857,7 @@ The pong is sent back to the **exact address and port** that the ping came from 
        │   {"sh":1,"type":"pong",...}     │
        │ ◄─────────────────────────────   │
        │                                  │
-       │   (ping confirmed, start        │
+       │   (ping confirmed, start         │
        │    sending telemetry)            │
        │                                  │
        │   {"sh":1,"aircraftTitle":...}   │
@@ -887,12 +887,12 @@ The pong is sent back to the **exact address and port** that the ping came from 
 Use ping/pong to avoid sending telemetry into the void at full rate when SimHaptic is unreachable:
 
 ```
-┌──────────────┐     ping, no pong     ┌──────────────┐
+┌──────────────┐     ping, no pong      ┌──────────────┐
 │              │ ───────────────────►   │              │
-│  PROBING     │     (every ~10s)      │   CONNECTED  │
+│  PROBING     │     (every ~10s)       │   CONNECTED  │
 │              │ ◄───────────────────   │              │
-│  Send ping   │     pong received     │  Send telem  │
-│  every ~10s  │ ───────────────────►  │  at full rate │
+│  Send ping   │     pong received      │  Send telem  │
+│  every ~10s  │ ───────────────────►   │ at full rate │
 │              │                        │              │
 └──────┬───────┘                        └──────┬───────┘
        │                                       │
