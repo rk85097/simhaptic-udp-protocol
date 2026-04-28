@@ -2,7 +2,7 @@
 
 **Protocol Version:** 1
 **SimHaptic Version:** 2.2.2+
-**Last Updated:** 2026-02-16
+**Last Updated:** 2026-04-28
 
 ---
 
@@ -30,14 +30,14 @@ Instead of SimHaptic connecting to your simulator directly, **your simulator sen
 
 ```
 ┌─────────────────────┐     Telemetry (JSON)       ┌─────────────────────┐
-│                     │  ───────────────────────►  │                     │
+│                     │  ───────────────────────►   │                     │
 │  Your Simulator     │  <SimHaptic-IP>:19872      │    SimHaptic        │
-│                     │    20-60 packets/sec       │                     │
+│                     │    20-60 packets/sec        │                     │
 │  (sends telemetry)  │                            │  (drives haptics)   │
-│                     │     Ping (JSON)            │                     │
-│                     │  ───────────────────────►  │                     │
-│                     │     Pong (JSON)            │                     │
-│                     │   ◄─────────────────────── │                     │
+│                     │     Ping (JSON)             │                     │
+│                     │  ───────────────────────►   │                     │
+│                     │     Pong (JSON)             │                     │
+│                     │   ◄───────────────────────  │                     │
 └─────────────────────┘                            └─────────────────────┘
 ```
 
@@ -150,7 +150,7 @@ See also: [Section 4.8](#48-engine--propulsion-per-engine) for per-engine boolea
 | `vne`                   | float | knots          | `0.0`   | 0+          | Never-Exceed speed (VNE). Used for overspeed detection. |
 | `gforce`                | float | G              | `0.0`   | any         | Current G-force. Normal flight = ~1.0. Positive = pull up, negative = push over. |
 | `verticalSpeed`         | float | feet/min (fpm) | `0.0`   | any         | Vertical speed. Negative = descending. Used for touchdown detection. |
-| `stallPercentage`       | float | 0.0 - 1.0     | `0.0`   | 0.0 - 1.0  | Stall proximity. 0 = no stall, 1 = full stall. Alternative to `isStalling` for gradual stall effects. |
+| `stallPercentage`       | float | 0.0 - 1.0     | `0.0`   | 0.0 - 1.0  | Stall proximity. 0 = no stall, 1 = full stall. Direct effect override — see [Section 4.11](#411-direct-effect-override-fields). |
 | `windshieldWindVelocity`| float | knots          | `0.0`   | 0+          | Wind velocity on the windshield. |
 | `densityAltFt`          | float | feet           | `0.0`   | any         | Density altitude. Used for helicopter VRS/ETL calculations. |
 
@@ -248,7 +248,27 @@ The protocol supports up to 4 engines. For single-engine aircraft, use `engine1*
 
 **Single-rotor helicopters**: Just send `rotor1RpmNorm`. Leave `rotor2RpmNorm` unset.
 
-### 4.11 Integer Fields - Ordnance & Countermeasures
+### 4.11 Direct Effect Override Fields
+
+These fields let your simulator drive an effect intensity directly, bypassing SimHaptic's internal calculations. SimHaptic uses the supplied value as-is and skips its own computation for that effect.
+
+For VRS, ETL, blade slapping, and turbulence: **omit the field entirely** to let SimHaptic calculate the effect internally from the component fields. For stall: `stallPercentage` is the only input — there is no internal fallback.
+
+> **Note on ranges:** `stallPercentage` uses a **0.0–1.0** scale (matching the rest of the flight data in this protocol). The newer percentage fields use **0–100** to make the intent explicit when reading a packet. Keep this in mind when populating your telemetry.
+
+| JSON Field                  | Type  | Range     | Description |
+|-----------------------------|-------|-----------|-------------|
+| `stallPercentage`           | float | 0.0–1.0   | Stall intensity. Used directly as effect intensity — 0.0 = no stall, 1.0 = full buffet. No internal fallback; omitting this field means the stall effect won't activate. Ramp gradually for best results (e.g. 0.1–0.2 near onset, 1.0 in deep stall). |
+| `vrsPercentage`             | float | 0–100     | VRS intensity. When present, overrides the internal VRS calculation entirely. 100 = full VRS buffet. Omit to use internal calculation. |
+| `etlPercentage`             | float | 0–100     | ETL shudder intensity. When present, overrides the internal ETL calculation entirely. 100 = full ETL shudder. Omit to use internal calculation. |
+| `bladeSlappingPercentage`   | float | 0–100     | Blade slapping intensity. When present, overrides the internal blade slap calculation entirely. 100 = full effect. Omit to use internal calculation. |
+| `turbulencePercentage`      | float | 0–100     | Turbulence intensity. When present, overrides the internal turbulence calculation entirely. 100 = full effect. Omit to use internal calculation. |
+
+**Important:** When you send one of these fields, you do **not** need to send the component fields for that specific effect (e.g. you can omit `verticalSpeed`, `collective`, etc. for VRS if you send `vrsPercentage`). Those component fields may still be needed by other effects, however.
+
+---
+
+### 4.12 Integer Fields - Ordnance & Countermeasures
 
 | JSON Field       | Type | Default | Description |
 |------------------|------|---------|-------------|
@@ -261,7 +281,7 @@ The protocol supports up to 4 engines. For single-engine aircraft, use `engine1*
 
 **Important note on ordnance fields:** SimHaptic detects weapon events by monitoring **changes** in these counters. For example, if `gunShellsCount` goes from 500 to 498 between packets, SimHaptic triggers the gun firing effect. The absolute values don't matter - only the changes do. Start with the actual loaded count and decrement as items are used.
 
-### 4.12 Float Field - Damage
+### 4.13 Float Field - Damage
 
 | JSON Field | Type  | Default | Range     | Description |
 |------------|-------|---------|-----------|-------------|
@@ -371,9 +391,11 @@ These are the effects most users expect. Prioritize implementing these fields fi
 #### Stall
 > Airframe buffet during aerodynamic stall.
 
+**Direct override (only mode — there is no internal fallback calculation):**
+
 | Required Field    | Why It's Needed |
 |-------------------|-----------------|
-| `stallPercentage` | Primary driver. 0.0 = no stall, 1.0 = full stall. **This value is used directly as the effect intensity** — a value of 0.5 means 50% stall buffet intensity. For the best experience, ramp this value gradually as the aircraft approaches stall (e.g. start at 0.1-0.2 near stall onset, increase toward 1.0 in a deep stall) rather than sending a hard 0/1 switch. |
+| `stallPercentage` | Stall intensity 0.0–1.0. Used directly as effect intensity. 0.5 = 50% buffet, 1.0 = full stall. Ramp gradually near onset rather than switching hard 0/1. |
 | `gearFrontOnGround`, `gearLeftOnGround`, `gearRightOnGround` | Disabled on ground |
 | `agl`             | Minimum altitude threshold (10 ft) for activation |
 
@@ -488,6 +510,14 @@ These are the effects most users expect. Prioritize implementing these fields fi
 
 #### Turbulence
 > Airframe shaking from atmospheric turbulence.
+
+**Option A — Direct override (preferred when your sim exposes turbulence intensity natively):**
+
+| Field                  | Why It's Needed |
+|------------------------|-----------------|
+| `turbulencePercentage` | Turbulence intensity 0–100. SimHaptic uses this directly and skips all internal turbulence calculation. |
+
+**Option B — Internal calculation (when your sim doesn't expose turbulence intensity):**
 
 | Required Field        | Why It's Needed |
 |-----------------------|-----------------|
@@ -717,6 +747,14 @@ These are the effects most users expect. Prioritize implementing these fields fi
 #### VRS (Vortex Ring State)
 > Dangerous condition where rotor descends into its own downwash.
 
+**Option A — Direct override (preferred when your sim exposes VRS state natively):**
+
+| Field             | Why It's Needed |
+|-------------------|-----------------|
+| `vrsPercentage`   | VRS intensity 0–100. SimHaptic uses this directly and skips all internal VRS calculation. |
+
+**Option B — Internal calculation (when your sim doesn't expose VRS state):**
+
 | Required Field    | Why It's Needed |
 |-------------------|-----------------|
 | `ias`             | Low airspeed is a VRS factor |
@@ -730,6 +768,14 @@ These are the effects most users expect. Prioritize implementing these fields fi
 #### ETL (Effective Translational Lift)
 > Shudder during transition from hover to forward flight (~16-24 knots).
 
+**Option A — Direct override (preferred when your sim exposes ETL state natively):**
+
+| Field             | Why It's Needed |
+|-------------------|-----------------|
+| `etlPercentage`   | ETL intensity 0–100. SimHaptic uses this directly and skips all internal ETL calculation. |
+
+**Option B — Internal calculation (when your sim doesn't expose ETL state):**
+
 | Required Field    | Why It's Needed |
 |-------------------|-----------------|
 | `ias`             | ETL peaks around 19 knots airspeed |
@@ -739,6 +785,14 @@ These are the effects most users expect. Prioritize implementing these fields fi
 
 #### Blade Slapping
 > Vibration from helicopter blades in certain flight conditions.
+
+**Option A — Direct override (preferred when your sim exposes blade slap state natively):**
+
+| Field                     | Why It's Needed |
+|---------------------------|-----------------|
+| `bladeSlappingPercentage` | Blade slap intensity 0–100. SimHaptic uses this directly and skips all internal blade slap calculation. |
+
+**Option B — Internal calculation (when your sim doesn't expose blade slap state):**
 
 | Required Field    | Why It's Needed |
 |-------------------|-----------------|
@@ -857,7 +911,7 @@ The pong is sent back to the **exact address and port** that the ping came from 
        │   {"sh":1,"type":"pong",...}     │
        │ ◄─────────────────────────────   │
        │                                  │
-       │   (ping confirmed, start         │
+       │   (ping confirmed, start        │
        │    sending telemetry)            │
        │                                  │
        │   {"sh":1,"aircraftTitle":...}   │
@@ -887,12 +941,12 @@ The pong is sent back to the **exact address and port** that the ping came from 
 Use ping/pong to avoid sending telemetry into the void at full rate when SimHaptic is unreachable:
 
 ```
-┌──────────────┐     ping, no pong      ┌──────────────┐
+┌──────────────┐     ping, no pong     ┌──────────────┐
 │              │ ───────────────────►   │              │
-│  PROBING     │     (every ~10s)       │   CONNECTED  │
+│  PROBING     │     (every ~10s)      │   CONNECTED  │
 │              │ ◄───────────────────   │              │
-│  Send ping   │     pong received      │  Send telem  │
-│  every ~10s  │ ───────────────────►   │ at full rate │
+│  Send ping   │     pong received     │  Send telem  │
+│  every ~10s  │ ───────────────────►  │  at full rate │
 │              │                        │              │
 └──────┬───────┘                        └──────┬───────┘
        │                                       │
@@ -979,6 +1033,8 @@ Use ping/pong to avoid sending telemetry into the void at full rate when SimHapt
 ## Appendix B: Complete Telemetry Packet Template
 
 Here is a template with every possible field and its default value. Copy this as a starting point and remove fields you don't need:
+
+> **Note on direct effect override fields:** `vrsPercentage`, `etlPercentage`, `bladeSlappingPercentage`, and `turbulencePercentage` are **not included** in the template below because their "default" is to be **absent from the packet**. Omitting these fields tells SimHaptic to use its internal calculation. Sending them with any value (including `0`) activates the override for that effect. Only include them if your simulator natively exposes these states.
 
 ```json
 {
